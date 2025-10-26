@@ -33,7 +33,11 @@
       "Bash(del /q \"C:\\Users\\pc\\Desktop\\FlacronCV\\backend\\flacronai-firebase-credentials.json\")",
       "Bash(del /q \"C:\\Users\\pc\\Desktop\\FlacronCV\\flacronai-firebase-credentials.json\")",
       "Bash(git init:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git branch:*)",
+      "Bash(git remote add:*)",
+      "Bash(git push:*)"
     ],
     "deny": [],
     "ask": []
