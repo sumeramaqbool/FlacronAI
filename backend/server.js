@@ -78,6 +78,21 @@ app.use('/api/', limiter);
 // Serve uploaded files (reports, images) - Only uploads, no static frontend files
 app.use('/uploads', express.static('uploads'));
 
+// Root endpoint - Respond to Render health checks
+app.get('/', (req, res) => {
+  res.json({
+    status: 'OK',
+    message: 'FlacronAI Backend API is running',
+    version: '1.0.0',
+    documentation: '/api'
+  });
+});
+
+// Also handle HEAD requests for health checks
+app.head('/', (req, res) => {
+  res.status(200).end();
+});
+
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.json({
