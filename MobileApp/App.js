@@ -41,7 +41,7 @@ const COLORS = {
 
 // ⚠️ IMPORTANT: Set this to your LOCAL backend when testing locally!
 // Option 1: Local backend (when running 'node server.js' on your computer)
-const API_URL = 'http://192.168.18.158:3000/api'; // ✅ YOUR LOCAL BACKEND
+const API_URL = 'https://flacronai.onrender.com/api'; // ✅ YOUR LOCAL BACKEND
 
 // Option 2: Production backend (deployed on Render)
 // const API_URL = 'https://flacronai.onrender.com/api'; // ❌ Doesn't have new endpoints
