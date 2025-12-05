@@ -322,6 +322,43 @@ function isPreambleText(text) {
 }
 
 /**
+ * Parse markdown text into TextRun objects with proper formatting
+ */
+function parseMarkdownToRuns(text) {
+  const runs = [];
+  let currentPos = 0;
+
+  // Match bold text: **text** or __text__
+  const boldRegex = /(\*\*|__)(.*?)\1/g;
+  let match;
+
+  while ((match = boldRegex.exec(text)) !== null) {
+    // Add text before bold
+    if (match.index > currentPos) {
+      const plainText = text.substring(currentPos, match.index);
+      if (plainText) runs.push(new TextRun({ text: plainText }));
+    }
+
+    // Add bold text
+    runs.push(new TextRun({ text: match[2], bold: true }));
+    currentPos = match.index + match[0].length;
+  }
+
+  // Add remaining text
+  if (currentPos < text.length) {
+    const remainingText = text.substring(currentPos);
+    if (remainingText) runs.push(new TextRun({ text: remainingText }));
+  }
+
+  // If no markdown found, return plain text
+  if (runs.length === 0) {
+    runs.push(new TextRun({ text: text }));
+  }
+
+  return runs;
+}
+
+/**
  * Format AI content with proper section headers and styling for DOCX
  */
 function formatAIContent(aiContent) {
@@ -350,29 +387,53 @@ function formatAIContent(aiContent) {
       continue;
     }
 
-    // Clean markdown from the text FIRST
-    const cleanedText = cleanMarkdown(trimmed);
-
     // Skip separator lines
-    if (cleanedText === '---' || cleanedText === '___' || cleanedText === '' || cleanedText === '...') {
+    if (trimmed === '---' || trimmed === '___' || trimmed === '...') {
       paragraphs.push(new Paragraph({ text: "", spacing: { after: 150 } }));
       continue;
     }
 
     // Skip preamble text (first few lines that might be meta-commentary)
-    if (skipPreamble && isPreambleText(cleanedText)) {
+    if (skipPreamble && isPreambleText(trimmed)) {
       continue;
     }
 
-    // Check if it's a major section header
+    // Check if it's a bullet point (*, -, or + at start)
+    const bulletMatch = trimmed.match(/^[\*\-\+]\s+(.+)$/);
+    if (bulletMatch) {
+      skipPreamble = false;
+      const bulletText = bulletMatch[1];
+      paragraphs.push(new Paragraph({
+        children: parseMarkdownToRuns(bulletText),
+        bullet: { level: 0 },
+        spacing: { after: 80, line: 276 }
+      }));
+      continue;
+    }
+
+    // Check if it's a numbered list (1., 2., etc.)
+    const numberMatch = trimmed.match(/^([0-9]+)\.\s+(.+)$/);
+    if (numberMatch) {
+      skipPreamble = false;
+      const listText = numberMatch[2];
+      paragraphs.push(new Paragraph({
+        children: parseMarkdownToRuns(listText),
+        numbering: { reference: "default-numbering", level: 0 },
+        spacing: { after: 80, line: 276 }
+      }));
+      continue;
+    }
+
+    // Check if it's a major section header (without markdown)
+    const cleanedForHeader = trimmed.replace(/\*\*/g, '');
     const isHeader = sectionHeaders.some(header =>
-      cleanedText.toUpperCase() === header ||
-      cleanedText.toUpperCase().startsWith(header + ':') ||
-      cleanedText.toUpperCase() === header + ':'
+      cleanedForHeader.toUpperCase() === header ||
+      cleanedForHeader.toUpperCase().startsWith(header + ':') ||
+      cleanedForHeader.toUpperCase() === header + ':'
     );
 
     // Once we hit actual content, stop skipping
-    if (isHeader || cleanedText.match(/^[A-Z][A-Z\s]+:?$/)) {
+    if (isHeader || cleanedForHeader.match(/^[A-Z][A-Z\s]+:?$/)) {
       skipPreamble = false;
     }
 
@@ -380,7 +441,7 @@ function formatAIContent(aiContent) {
     if (isHeader) {
       paragraphs.push(new Paragraph({
         children: [new TextRun({
-          text: cleanedText,
+          text: cleanedForHeader,
           bold: true,
           size: 22,  // 11pt
           allCaps: false
@@ -389,28 +450,25 @@ function formatAIContent(aiContent) {
       }));
     }
     // Format subsections (ends with :)
-    else if (cleanedText.endsWith(':') && cleanedText.length < 80 && !cleanedText.includes('\n')) {
+    else if (trimmed.endsWith(':') && trimmed.length < 80 && !trimmed.includes('\n')) {
+      const cleanedSubsection = trimmed.replace(/\*\*/g, '');
       paragraphs.push(new Paragraph({
         children: [new TextRun({
-          text: cleanedText,
+          text: cleanedSubsection,
           bold: true,
           size: 20  // 10pt
         })],
         spacing: { before: 120, after: 80 }
       }));
     }
-    // Regular paragraph with proper spacing
+    // Regular paragraph with markdown parsing
     else {
-      // Check if it's a list item (starts with number or letter)
-      const isListItem = /^[0-9]+\./.test(cleanedText) || /^[a-z]\./.test(cleanedText);
-
       paragraphs.push(new Paragraph({
-        text: cleanedText,
+        children: parseMarkdownToRuns(trimmed),
         spacing: {
           after: 80,
           line: 276  // 1.15 line spacing
         },
-        indent: isListItem ? { left: 360 } : undefined,  // Indent list items
         alignment: AlignmentType.LEFT
       }));
     }
@@ -506,12 +564,81 @@ function generatePDF(reportData, aiContent) {
 }
 
 /**
- * Format PDF content with proper headings and spacing
+ * Render text with markdown bold formatting in PDF
+ */
+function renderMarkdownTextPDF(doc, text, options = {}) {
+  const fontSize = options.fontSize || 10;
+  const indent = options.indent || 0;
+  const lineGap = options.lineGap || 2;
+
+  doc.fontSize(fontSize).fillColor('#000000');
+
+  // Split text by bold markers
+  const parts = [];
+  let currentPos = 0;
+  const boldRegex = /(\*\*|__)(.*?)\1/g;
+  let match;
+
+  while ((match = boldRegex.exec(text)) !== null) {
+    // Add text before bold
+    if (match.index > currentPos) {
+      parts.push({ text: text.substring(currentPos, match.index), bold: false });
+    }
+    // Add bold text
+    parts.push({ text: match[2], bold: true });
+    currentPos = match.index + match[0].length;
+  }
+
+  // Add remaining text
+  if (currentPos < text.length) {
+    parts.push({ text: text.substring(currentPos), bold: false });
+  }
+
+  // If no markdown found, render as plain text
+  if (parts.length === 0) {
+    doc.font('Helvetica').text(text, { indent, lineGap, align: 'left' });
+    return;
+  }
+
+  // Render parts with mixed formatting
+  const startX = doc.x + indent;
+  const startY = doc.y;
+  let currentX = startX;
+  const maxWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right - indent;
+
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i];
+    const font = part.bold ? 'Helvetica-Bold' : 'Helvetica';
+    doc.font(font);
+
+    // Measure text width
+    const textWidth = doc.widthOfString(part.text);
+
+    // Check if we need to wrap to next line
+    if (currentX + textWidth > startX + maxWidth && currentX > startX) {
+      doc.text('');  // Move to next line
+      currentX = startX;
+    }
+
+    // Render the text part
+    doc.text(part.text, currentX, doc.y, {
+      continued: i < parts.length - 1,
+      lineBreak: false
+    });
+
+    currentX += textWidth;
+  }
+
+  // Finish the line
+  doc.text('');
+}
+
+/**
+ * Format PDF content with proper headings, bullets, and formatting
  */
 function formatPDFContent(doc, aiContent) {
-  // Clean markdown first
-  const cleaned = cleanMarkdown(aiContent);
-  const lines = cleaned.split('\n');
+  // Don't clean markdown - preserve formatting
+  const lines = aiContent.split('\n');
 
   const sectionHeaders = [
     'REMARKS', 'RISK', 'ITV', 'OCCURRENCE', 'COVERAGE', 'DWELLING DAMAGE',
@@ -524,7 +651,7 @@ function formatPDFContent(doc, aiContent) {
     'WORK TO BE COMPLETED / RECOMMENDATION'
   ];
 
-  let skipNext = false;
+  let skipPreamble = true;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
@@ -540,39 +667,65 @@ function formatPDFContent(doc, aiContent) {
       continue;
     }
 
-    // Check if it's a major section header
+    // Check if it's a bullet point (*, -, or + at start)
+    const bulletMatch = line.match(/^[\*\-\+]\s+(.+)$/);
+    if (bulletMatch) {
+      skipPreamble = false;
+      const bulletText = bulletMatch[1];
+      doc.fontSize(10).fillColor('#000000').font('Helvetica');
+      doc.text('• ', { continued: false });
+      renderMarkdownTextPDF(doc, bulletText, { indent: 15, lineGap: 2 });
+      doc.moveDown(0.1);
+      continue;
+    }
+
+    // Check if it's a numbered list (1., 2., etc.)
+    const numberMatch = line.match(/^([0-9]+)\.\s+(.+)$/);
+    if (numberMatch) {
+      skipPreamble = false;
+      const number = numberMatch[1];
+      const listText = numberMatch[2];
+      doc.fontSize(10).fillColor('#000000').font('Helvetica');
+      doc.text(`${number}. `, { continued: false });
+      renderMarkdownTextPDF(doc, listText, { indent: 20, lineGap: 2 });
+      doc.moveDown(0.1);
+      continue;
+    }
+
+    // Check if it's a major section header (without markdown)
+    const cleanedForHeader = line.replace(/\*\*/g, '');
     const isHeader = sectionHeaders.some(header =>
-      line.toUpperCase() === header ||
-      line.toUpperCase().startsWith(header + ':') ||
-      line.toUpperCase().startsWith(header)
+      cleanedForHeader.toUpperCase() === header ||
+      cleanedForHeader.toUpperCase().startsWith(header + ':') ||
+      cleanedForHeader.toUpperCase().startsWith(header)
     );
+
+    // Once we hit actual content, stop skipping
+    if (isHeader || cleanedForHeader.match(/^[A-Z][A-Z\s]+:?$/)) {
+      skipPreamble = false;
+    }
 
     if (isHeader) {
       doc.moveDown(0.5);
       doc.fontSize(11)
          .fillColor('#000000')
          .font('Helvetica-Bold')
-         .text(line);
+         .text(cleanedForHeader);
       doc.moveDown(0.3);
     }
     // Check if it's a subsection (ends with :)
     else if (line.endsWith(':') && line.length < 80) {
+      const cleanedSubsection = line.replace(/\*\*/g, '');
       doc.moveDown(0.2);
       doc.fontSize(10)
          .fillColor('#000000')
          .font('Helvetica-Bold')
-         .text(line);
+         .text(cleanedSubsection);
       doc.moveDown(0.1);
     }
-    // Regular paragraph
+    // Regular paragraph with markdown parsing
     else {
-      doc.fontSize(10)
-         .fillColor('#000000')
-         .font('Helvetica')
-         .text(line, {
-           align: 'left',
-           lineGap: 2
-         });
+      renderMarkdownTextPDF(doc, line, { lineGap: 2 });
     }
   }
 }
